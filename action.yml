@@ -1,16 +1,24 @@
 name: 'Yarn Lock Changes'
-description: 'Adds a comment with human-readable summary of `yarn.lock` changes.'
+description: 'Creates a comment inside Pull Request with the human-readable summary of the changes to the `yarn.lock` file.'
 branding:
   icon: 'copy'
   color: 'purple'
 inputs:
+  collapsibleThreshold:
+    description: 'Number of lock changes, which will result in collapsed comment content an addition of summary table.'
+    required: false
+    default: '25'
   path:
-    description: 'Path to the `yarn.lock` file'
+    description: 'Path to the `yarn.lock` file in the repository. Default value points to the file at project root.'
     required: false
     default: 'yarn.lock'
   token:
-    description: 'GitHub Auth token'
+    description: 'GitHub token for the bot, so it can publish a comment in the pull request.'
     required: true
+  updateComment:
+    description: 'Should the bot update the summary comment. If value is `false`, bot will post a new comment on each new commit.'
+    required: false
+    default: 'true'
 runs:
   using: 'node12'
   main: 'dist/index.js'
