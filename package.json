@@ -1,12 +1,13 @@
 {
-  "name": "yarn-lock-changes",
+  "name": "package-lock-changes",
   "version": "0.0.1",
   "main": "dist/index.js",
-  "repository": "github:Simek/yarn-lock-changes",
-  "author": "Simek <me@simek.dev>",
+  "repository": "github:Mheaus/package-lock-changes",
+  "author": "Mheaus",
   "license": "MIT",
   "scripts": {
-    "compile": "ncc build action.js -m",
+    "build-tsc": "tsc",
+    "build-css": "ncc build index.js --license licenses.txt",
     "lint": "eslint action.js",
     "optimize": "svgo -f ./assets"
   },
@@ -16,13 +17,20 @@
     "@yarnpkg/lockfile": "^1.1.0",
     "compare-versions": "^3.6.0",
     "js-base64": "^3.6.0",
+    "lock-diff": "^0.7.0",
     "markdown-table": "^3.0.0"
   },
   "devDependencies": {
-    "eslint": "^7.25.0",
+    "@types/node": "^15.12.3",
+    "@typescript-eslint/eslint-plugin": "^4.27.0",
+    "@typescript-eslint/parser": "^4.27.0",
+    "eslint": "^7.28.0",
+    "eslint-config-airbnb-base": "^14.2.1",
     "eslint-config-prettier": "^8.3.0",
+    "eslint-plugin-import": "^2.23.4",
     "eslint-plugin-prettier": "^3.4.0",
     "prettier": "^2.2.1",
-    "svgo": "^2.3.0"
+    "svgo": "^2.3.0",
+    "typescript": "^4.3.4"
   }
 }

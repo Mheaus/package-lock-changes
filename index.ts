@@ -1,30 +1,43 @@
-const core = require('@actions/core');
-const github = require('@actions/github');
-const lockfile = require('@yarnpkg/lockfile');
-const compareVersions = require('compare-versions');
-const fs = require('fs');
-const { Base64 } = require('js-base64');
-const { markdownTable } = require('markdown-table');
-const path = require('path');
+import { Base64 } from 'js-base64';
+import { markdownTable } from 'markdown-table';
+import compareVersions from 'compare-versions';
+import core from '@actions/core';
+import fs from 'fs';
+import github from '@actions/github';
+// @ts-ignore
+import lockfile from '@yarnpkg/lockfile';
+import path from 'path';
 
 const GH_RAW_URL = 'https://raw.githubusercontent.com';
-const ASSETS_URL = `${GH_RAW_URL}/Simek/yarn-lock-changes/main/assets`;
-const COMMENT_HEADER = '## `yarn.lock` changes';
+const ASSETS_URL = `${GH_RAW_URL}/Mheaus/package-lock-changes/main/assets`;
+const COMMENT_HEADER = '## `package-lock.json` changes';
 
-const getStatusLabel = (status) =>
+type Status = 'removed' | 'added' | 'downgraded' | 'updated';
+
+const getStatusLabel = (status: Status) =>
   `[<sub><img alt="${status.toUpperCase()}" src="${ASSETS_URL}/${status}.svg" height="16" /></sub>](#)`;
 
-const formatEntry = (obj) =>
+interface Lock {
+  object: { [key: string]: { version: string } };
+}
+
+const formatEntry = (obj: Lock) =>
   Object.fromEntries(
     Object.keys(obj.object).map((key) => {
       const nameParts = key.split('@');
-      const name = nameParts[0] === '' ? '@' + nameParts[1] : nameParts[0];
+      const name = nameParts[0] === '' ? `@${nameParts[1]}` : nameParts[0];
       return [name, { name, version: obj.object[key].version }];
     })
   );
 
-const diffLocks = (previous, current) => {
-  const changes = {};
+interface Change {
+  previous: string;
+  current: string;
+  status: Status;
+}
+
+const diffLocks = (previous: Lock, current: Lock) => {
+  const changes: Record<string, Change> = {};
   const previousPackages = formatEntry(previous);
   const currentPackages = formatEntry(current);
 
@@ -32,7 +45,7 @@ const diffLocks = (previous, current) => {
     changes[key] = {
       previous: previousPackages[key].version,
       current: '-',
-      status: 'removed'
+      status: 'removed',
     };
   });
 
@@ -41,18 +54,16 @@ const diffLocks = (previous, current) => {
       changes[key] = {
         previous: '-',
         current: currentPackages[key].version,
-        status: 'added'
+        status: 'added',
       };
+    } else if (changes[key].previous === currentPackages[key].version) {
+      delete changes[key];
     } else {
-      if (changes[key].previous === currentPackages[key].version) {
-        delete changes[key];
+      changes[key].current = currentPackages[key].version;
+      if (compareVersions(changes[key].previous, changes[key].current) === 1) {
+        changes[key].status = 'downgraded';
       } else {
-        changes[key].current = currentPackages[key].version;
-        if (compareVersions(changes[key].previous, changes[key].current) === 1) {
-          changes[key].status = 'downgraded';
-        } else {
-          changes[key].status = 'updated';
-        }
+        changes[key].status = 'updated';
       }
     }
   });
@@ -60,50 +71,55 @@ const diffLocks = (previous, current) => {
   return changes;
 };
 
-const createTable = (lockChanges) =>
+const createTable = (lockChanges: {
+  [s: string]: { status: Status; previous: string; current: string };
+}) =>
   markdownTable(
     [
       ['Name', 'Status', 'Previous', 'Current'],
       ...Object.entries(lockChanges)
         .map(([key, { status, previous, current }]) => [
-          '`' + key + '`',
+          `\`${key}\``,
           getStatusLabel(status),
           previous,
-          current
+          current,
         ])
-        .sort((a, b) => a[0].localeCompare(b[0]))
+        .sort((a, b) => a[0].localeCompare(b[0])),
     ],
     { align: ['l', 'c', 'c', 'c'], alignDelimiters: false }
   );
 
-const countStatuses = (lockChanges, statusToCount) =>
-  Object.values(lockChanges).filter(({ status }) => status === statusToCount).length;
+const countStatuses = (
+  lockChanges: { [s: string]: unknown } | ArrayLike<unknown>,
+  statusToCount: any
+) => Object.values(lockChanges).filter(({ status }: any) => status === statusToCount).length;
 
-const createSummaryRow = (lockChanges, status) => {
+const createSummaryRow = (lockChanges: any, status: Status) => {
   const statusCount = countStatuses(lockChanges, status);
   return statusCount ? [getStatusLabel(status), statusCount] : undefined;
 };
 
-const createSummary = (lockChanges) =>
+const createSummary = (lockChanges: Record<string, Change>) =>
   markdownTable(
     [
       ['Status', 'Count'],
-      createSummaryRow(lockChanges, 'added'),
-      createSummaryRow(lockChanges, 'updated'),
-      createSummaryRow(lockChanges, 'downgraded'),
-      createSummaryRow(lockChanges, 'removed')
+      createSummaryRow(lockChanges, 'added') as string[],
+      createSummaryRow(lockChanges, 'updated') as string[],
+      createSummaryRow(lockChanges, 'downgraded') as string[],
+      createSummaryRow(lockChanges, 'removed') as string[],
     ].filter(Boolean),
     { align: ['l', 'c'], alignDelimiters: false }
   );
 
-const getBooleanInput = (input) => {
+const getBooleanInput = (input: string) => {
   const trueValues = ['true', 'yes', 'y', 'on'];
   const falseValues = ['false', 'no', 'n', 'off'];
   const stringInput = core.getInput(input).toLowerCase();
 
   if (trueValues.includes(stringInput)) {
     return true;
-  } else if (falseValues.includes(stringInput)) {
+  }
+  if (falseValues.includes(stringInput)) {
     return false;
   }
 
@@ -135,14 +151,18 @@ const run = async () => {
     const masterLockResponse = await octokit.request('GET /repos/{owner}/{repo}/contents/{path}', {
       owner,
       repo,
-      path: inputPath
+      path: inputPath,
     });
 
-    if (!masterLockResponse || !masterLockResponse.data || !masterLockResponse.data.content) {
+    if (
+      !masterLockResponse ||
+      !masterLockResponse.data ||
+      !(masterLockResponse.data as any).content
+    ) {
       throw new Error('💥 Cannot fetch base lock, aborting!');
     }
 
-    const masterLock = lockfile.parse(Base64.decode(masterLockResponse.data.content));
+    const masterLock = lockfile.parse(Base64.decode((masterLockResponse.data as any).content));
     const lockChanges = diffLocks(masterLock, updatedLock);
     const lockChangesCount = Object.keys(lockChanges).length;
 
@@ -150,19 +170,12 @@ const run = async () => {
       const diffsTable = createTable(lockChanges);
       const collapsed = lockChangesCount >= collapsibleThreshold;
 
-      const changesSummary = collapsed ? '### Summary\n' + createSummary(lockChanges) : '';
+      const changesSummary = collapsed ? `### Summary\n${createSummary(lockChanges)}` : '';
 
       const commentBody =
-        COMMENT_HEADER +
-        '\n' +
-        changesSummary +
-        '\n' +
-        '<details' +
-        (collapsed ? '' : ' open') +
-        '>\n' +
-        '<summary>Click to toggle table visibility</summary>\n<br/>\n\n' +
-        diffsTable +
-        '\n\n' +
+        `${COMMENT_HEADER}\n${changesSummary}\n` +
+        `<details${collapsed ? '' : ' open'}>\n` +
+        `<summary>Click to toggle table visibility</summary>\n<br/>\n\n${diffsTable}\n\n` +
         '</details>';
 
       if (updateComment) {
@@ -170,7 +183,7 @@ const run = async () => {
           owner,
           repo,
           issue_number: number,
-          per_page: 100
+          per_page: 100,
         });
 
         if (!currentComments || !currentComments.data) {
@@ -180,7 +193,10 @@ const run = async () => {
         const commentId = currentComments.data
           .filter(
             (comment) =>
+              comment &&
+              comment.user &&
               comment.user.login === 'github-actions[bot]' &&
+              comment.body &&
               comment.body.startsWith(COMMENT_HEADER)
           )
           .map((comment) => comment.id)[0];
@@ -190,14 +206,14 @@ const run = async () => {
             owner,
             repo,
             comment_id: commentId,
-            body: commentBody
+            body: commentBody,
           });
         } else {
           await octokit.issues.createComment({
             owner,
             repo,
             issue_number: number,
-            body: commentBody
+            body: commentBody,
           });
         }
       } else {
@@ -205,7 +221,7 @@ const run = async () => {
           owner,
           repo,
           issue_number: number,
-          body: commentBody
+          body: commentBody,
         });
       }
     }
